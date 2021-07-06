@@ -95,7 +95,7 @@ namespace RedisProtobufCollections
                 value = _redisList[index];
                 return true;
             }
-            value = default(TValue);
+            value = default(TValue)!;
             return false;
         }
 

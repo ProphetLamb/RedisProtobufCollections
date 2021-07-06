@@ -12,7 +12,7 @@ namespace RedisProtobufCollections.Exceptions
         {
             if (s_argumentNameMap.TryGetValue(argument, out string? name))
                 return name!;
-            name = Enum.GetName(argument);
+            name = Enum.GetName(typeof(ExceptionArgument), argument);
             s_argumentNameMap.Add(argument, name!);
             return name!;
         }
