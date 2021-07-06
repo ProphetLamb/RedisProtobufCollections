@@ -35,7 +35,7 @@ namespace RedisProtobufCollections
         }
 
         /*
-         * Serialize byte[], and deserialize as ReadOnlyMemory<byte>.
+         * Serialize byte[] or ReadOnlyMemory<byte>, and deserialize as ReadOnlyMemory<byte>.
          * This way we store as StorageType.Raw and may return the heap allocated memory, if any; otherwise we get a heap allocation.
          */
         /// <inheritdoc />
