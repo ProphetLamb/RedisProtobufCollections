@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package>
+  <metadata>
+    <id>RedisProtobufCollections</id>
+    <title>RedisProtobufCollections</title>
+    <copyright>Copyright (c) 2021 Prophet Lamb</copyright>
+    <version>0.1.0</version>
+    <authors>ProphetLamb</authors>
+    <description>List &amp; Dictionary wrappers for redis backed by protobuffer serialization, for [ProtoContract] types.</description>
+    <license type="expression">MIT</license>
+    <projectUrl>https://github.com/ProphetLamb/RedisProtobufCollections</projectUrl>
+    <repository type="git" url="https://github.com/ProphetLamb/RedisProtobufCollections.git" />
+    <tags>csharp redis protobuf collection</tags>
+  </metadata>
+  <files>
+    <file src="src/bin/x64/Release/netstandard2.1/RedisProtobufCollections.*" target="build/netstandard2.1/x64" />
+    <file src="src/bin/x86/Release/netstandard2.1/RedisProtobufCollections.*" target="build/netstandard2.1/x86" />
+  </files>
+</package>
