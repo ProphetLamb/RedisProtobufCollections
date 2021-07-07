@@ -35,6 +35,12 @@ namespace RedisProtobufCollections.Exceptions
             throw new ArgumentOutOfRangeException(GetArgumentName(argument), $"The value must be less then the maximum {maxExcl}");
         }
 
+        [DoesNotReturn]
+        internal static void ThrowArgumentException(ExceptionArgument argument, string? message)
+        {
+            throw new ArgumentException(message, GetArgumentName(argument));
+        }
+
         internal static void ThrowIfObjectDisposed([DoesNotReturnIf(true)] bool disposed)
         {
             if (disposed)
@@ -47,9 +53,9 @@ namespace RedisProtobufCollections.Exceptions
             throw new InvalidOperationException("The operation cannot be performed on an disposed object.");
         }
 
-        internal static void ThrowIfObjectNotInitialized([DoesNotReturnIf(true)] bool initialized)
+        internal static void ThrowIfObjectNotInitialized([DoesNotReturnIf(true)] bool notInitialized)
         {
-            if (initialized)
+            if (notInitialized)
                 ThrowInvalidOperationException_ObjectNotInitialized();
         }
 
@@ -90,6 +96,7 @@ namespace RedisProtobufCollections.Exceptions
         initialCapacity,
         index,
         arrayIndex,
-        array
+        array,
+        optionAccessor
     }
 }
