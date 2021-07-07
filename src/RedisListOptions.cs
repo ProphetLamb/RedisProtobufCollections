@@ -3,7 +3,7 @@ using Microsoft.Extensions.Caching.StackExchangeRedis;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 
-namespace RedisProtobufCollections.Extensions
+namespace RedisProtobufCollections
 {
     public class RedisListOptions : IOptions<RedisListOptions>, IOptions<RedisCacheOptions>
     {

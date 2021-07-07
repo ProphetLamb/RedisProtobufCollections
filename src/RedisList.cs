@@ -9,7 +9,6 @@ using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 
 using RedisProtobufCollections.Exceptions;
-using RedisProtobufCollections.Extensions;
 using Microsoft.Extensions.Caching.StackExchangeRedis;
 
 namespace RedisProtobufCollections

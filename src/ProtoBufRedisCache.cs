@@ -11,6 +11,9 @@ using RedisProtobufCollections.Utility;
 
 namespace RedisProtobufCollections
 {
+    /// <summary>
+    ///     Manages a <see cref="RedisCache"/>, serializes data using ProtoBuffer.
+    /// </summary>
     public class ProtoBufRedisCache : IStrongDistributedCache, IDistributedCache, IDisposable
     {
         private readonly RedisCache _cache;

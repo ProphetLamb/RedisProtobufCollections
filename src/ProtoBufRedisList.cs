@@ -3,10 +3,7 @@ using System.Threading;
 using Microsoft.Extensions.Options;
 
 using ProtoBuf;
-using ProtoBuf.Meta;
 
-using RedisProtobufCollections.Exceptions;
-using RedisProtobufCollections.Extensions;
 using RedisProtobufCollections.Utility;
 
 using StackExchange.Redis;
