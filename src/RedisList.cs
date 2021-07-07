@@ -2,55 +2,143 @@ using System;
 using System.Buffers;
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading;
+
+using Microsoft.Extensions.Options;
+
 using StackExchange.Redis;
+
+using RedisProtobufCollections.Exceptions;
+using RedisProtobufCollections.Extensions;
+using Microsoft.Extensions.Caching.StackExchangeRedis;
 
 namespace RedisProtobufCollections
 {
     /// <summary>
-    ///     A <see cref="IList"/>-like representation of a <see cref="RedisDatabase"/>.
+    ///     A <see cref="IList"/>-like representation of an entry of a <see cref="RedisCache"/>.
     /// </summary>
-    /// <typeparam name="T">The type of items of the database.</typeparam>
-    public abstract class RedisList<T> : 
+    /// <typeparam name="T">The type of items of the list.</typeparam>
+    public abstract class RedisList<T> :
         IList<T>,
         ICollection,
         IReadOnlyList<T>,
         IDisposable
+        where T : new()
     {
-        protected ConnectionMultiplexer? m_connection;
-        protected readonly string m_key;
+        private volatile IConnectionMultiplexer? _connection;
+        
+        private readonly SemaphoreSlim _connectionLock = new(1,1);
 
-        protected RedisList(string key, ConnectionMultiplexer connection)
+        private RedisListOptions? _options;
+
+        protected RedisKey m_key;
+
+        protected IDatabase? m_cache;
+
+        private readonly string _instance;
+
+        protected RedisList(IOptions<RedisListOptions> optionsAccessor)
         {
-            m_key = key;
-            m_connection = connection;
+            if (optionsAccessor?.Value?.CacheOptions == null)
+                ThrowHelper.ThrowArgumentException(ExceptionArgument.optionAccessor, "RedisListOptions are invalid, CacheOptions are null.");
+
+            _options = optionsAccessor.Value;
+            _instance = optionsAccessor.Value.CacheOptions.InstanceName;
         }
 
         /// <inheritdoc />
         public bool IsSynchronized => true;
 
         /// <summary>The <see cref="RedisDatabase"/>.</summary>
-        public object SyncRoot => GetRedisDatabase();
+        public object SyncRoot
+        {
+            get
+            {
+                Connect();
+                return m_cache!;
+            }
+        }
+
+        /// <inheritdoc cref="IList{T}.Count" />
+        public int Count
+        {
+            get
+            {
+                Connect();
+                return (int)m_cache!.ListLength(m_key);
+            }
+        }
+
+        /// <inheritdoc />
+        bool ICollection<T>.IsReadOnly => false;
+
+        /// <inheritdoc cref="IList{T}.this" />
+        public T this[int index]
+        {
+            get
+            {
+                Connect();
+
+                return Deserialize(m_cache!.ListGetByIndex(m_key, index));
+            }
+            set => Insert(index, value);
+        }
 
         /// <summary>
-        ///     Creates the <see cref="RedisDatabase"/> representing the list.
+        /// Assigns a value to <see cref="_connection"/>, <see cref="m_key"/>, <see cref="m_cache"/> when called the first time.
         /// </summary>
-        /// <returns>The <see cref="RedisDatabase"/> representing the list.</returns>
-        protected abstract IDatabase GetRedisDatabase();
+        /// <exception cref="InvalidOpterationException">The object is disposed.</exception>
+        protected virtual void Connect()
+        {
+            ThrowHelper.ThrowIfObjectDisposed(_options == null);
+
+            if (m_cache != null)
+                return; // Already initialized.
+
+            _connectionLock.Wait(); // Prevent connection reentry
+            try
+            {
+                RedisCacheOptions options = _options.CacheOptions;
+                if (options.ConnectionMultiplexerFactory == null)
+                {
+                    if (options.ConfigurationOptions != null)
+                    {
+                        _connection = ConnectionMultiplexer.Connect(options.ConfigurationOptions);
+                    }
+                    else
+                    {
+                        _connection = ConnectionMultiplexer.Connect(options.Configuration);
+                    }
+                }
+                else
+                {
+                    _connection = options.ConnectionMultiplexerFactory().GetAwaiter().GetResult();
+                }
+                TryRegisterProfiler();
+                m_cache = _connection.GetDatabase();
+                m_key = _options.RedisListKey;
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+
+        private void TryRegisterProfiler()
+        {
+            if (_connection != null && _options!.CacheOptions.ProfilingSession != null)
+            {
+                _connection.RegisterProfiler(_options.CacheOptions.ProfilingSession);
+            }
+        }
 
         /// <summary>
         ///     Serializes a object to a <see cref="RedisValue"/>.
         /// </summary>
-        /// <param name="obj">The object to serialize.</param>
+        /// <param name="value">The object to serialize.</param>
+        /// <param name="serialized">>A value that can be added to the <see cref="RedisDatabase"/>. Could be dirty, may only be written to.</param>
         /// <param name="leased">The array of the memory backing the <see cref="RedisValue"/>, to be returned to the array-pool when no longer needed.</param>
-        /// <returns>A value that can be used while the <paramref name="leased"/> array is not returned to the pool.</returns>
-        protected abstract RedisValue Serialize(in T obj, out byte[] leased);
-
-        /// <summary>
-        ///     Serializes a object to a <see cref="RedisValue"/>.
-        /// </summary>
-        /// <param name="obj">The object to serialize.</param>
-        /// <returns>A value that can be added to the <see cref="RedisDatabase"/>.</returns>
-        protected abstract RedisValue Serialize(in T obj);
+        protected abstract void Serialize(in T value, ref RedisValue serialized, out byte[] leased);
 
         /// <summary>
         ///     Deserializes a <see cref="RedisValue"/> to the object of the instance.
@@ -59,83 +147,194 @@ namespace RedisProtobufCollections
         /// <returns>A item of the list.</returns>
         protected abstract T Deserialize(in RedisValue serialized);
 
-        /// <inheritdoc />
-        public void Insert(int index, T item)
-        {
-            IDatabase db = GetRedisDatabase();
-            RedisValue before = db.ListGetByIndex(m_key, index);
-            db.ListInsertBefore(m_key, before, Serialize(item));
-        }
+        /// <summary>
+        ///     Deserializes a <see cref="RedisValue"/> to the object of the instance.
+        /// </summary>
+        /// <param name="serialized">The value obtained from the redis database.</param>
+        /// <param name="value">A item of the list.</param>
+        protected abstract void Deserialize(in RedisValue serialized, ref T value);
 
         /// <inheritdoc />
-        public void RemoveAt(int index)
+        public int IndexOf(T item)
         {
-            IDatabase db = GetRedisDatabase();
-            RedisValue value = db.ListGetByIndex(m_key, index);
-            if (!value.IsNull)
+            Connect();
+
+            IDatabase cache = m_cache!;
+            RedisValue probe = new();
+            Serialize(item, ref probe, out byte[] leased);
+
+            for (int i = 0; i < Count; i++)
             {
-                db.ListRemove(m_key, value);
+                // Both are StorageType.Raw, RedisValue will call Span.SequenceEquals, which is Memory.Compare
+                if (!probe.Equals(cache.ListGetByIndex(m_key, i)))
+                    continue;
+
+                ArrayPool<byte>.Shared.Return(leased);
+                return i;
             }
-        }
 
-        /// <inheritdoc cref="IList{T}.this" />
-        public T this[int index]
-        {
-            get
-            {
-                RedisValue value = GetRedisDatabase().ListGetByIndex(m_key, index);
-                return Deserialize(value);
-            }
-            set => Insert(index, value);
+            return -1;
         }
-
-        /// <inheritdoc />
-        public void Add(T item)
-        {
-            GetRedisDatabase().ListRightPush(m_key, Serialize(item));
-        }
-
-        /// <inheritdoc />
-        public void Clear() => GetRedisDatabase().KeyDelete(m_key);
 
         /// <inheritdoc />
         public bool Contains(T item) => IndexOf(item) >= 0;
 
         /// <inheritdoc />
-        public void CopyTo(T[] array, int arrayIndex) => GetRedisDatabase().ListRange(m_key).CopyTo(array, arrayIndex);
+        public void Add(T item)
+        {
+            Connect();
+
+            RedisValue value = new();
+            Serialize(item, ref value, out byte[] leased);
+
+            m_cache!.ListRightPush(m_key, value);
+
+            ArrayPool<byte>.Shared.Return(leased);
+        }
 
         /// <inheritdoc />
-        public int IndexOf(T item)
+        public void Insert(int index, T item)
         {
-            for (int i = 0; i < Count; i++)
+            Connect();
+
+            RedisValue value = new();
+            Serialize(item, ref value, out byte[] leased);
+
+            m_cache!.ListInsertBefore(m_key, m_cache.ListGetByIndex(m_key, index), value);
+
+            ArrayPool<byte>.Shared.Return(leased);
+        }
+
+        /// <inheritdoc />
+        public bool Remove(T item)
+        {
+            Connect();
+
+            RedisValue value = new();
+            Serialize(item, ref value, out byte[] leased);
+
+            long removedAt = m_cache!.ListRemove(m_key, value);
+
+            ArrayPool<byte>.Shared.Return(leased);
+            return removedAt > 0;
+        }
+
+        /// <inheritdoc />
+        public void RemoveAt(int index)
+        {
+            Connect();
+
+            RedisValue value = m_cache!.ListGetByIndex(m_key, index);
+            if (!value.IsNull)
             {
-                // Both should be StorageType.Raw, we call a Span.SequenceEquals.
-                bool areEqual = GetRedisDatabase().ListGetByIndex(m_key, i).Equals(Serialize(item, out byte[] leased));
-                ArrayPool<byte>.Shared.Return(leased);
-                if (areEqual)
-                    return i;
+                m_cache.ListRemove(m_key, value);
             }
-            return -1;
+        }
+
+        /// <inheritdoc />
+        public void Clear() => m_cache?.KeyDelete(m_key);
+
+        public T[] GetRange(int startIndex, int count)
+        {
+            if (count < 0)
+                ThrowHelper.ThrowArgumentOutOfRangeException_LessZero(ExceptionArgument.count);
+
+            Connect();
+
+            RedisValue[] values = m_cache!.ListRange(m_key, startIndex, startIndex + count);
+            T[] segment = new T[values.Length];
+
+            for(int i = 0; i < values.Length; i++)
+            {
+                Deserialize(values[i], ref segment[i]);
+            }
+
+            return segment;
+        }
+
+        public Span<T> GetRange(int startIndex, int count, out T[] leased)
+        {
+            if (count < 0)
+                ThrowHelper.ThrowArgumentOutOfRangeException_LessZero(ExceptionArgument.count);
+
+            Connect();
+
+            RedisValue[] values = m_cache!.ListRange(m_key, startIndex, startIndex + count - 1);
+
+            if (values.Length != count)
+                ThrowHelper.ThrowInvalidOperationException($"Redis returned {values.Length} items, but expected {count} items.");
+
+            leased = ArrayPool<T>.Shared.Rent(count);
+
+            for(int i = 0; i < count; i++)
+            {
+                Deserialize(values[i], ref leased[i]);
+            }
+
+            return leased.AsSpan(0, count);
+        }
+
+        public int AddRange(IEnumerable<T> items)
+        {
+            Connect();
+
+            int count;
+            if (items is ICollection<T> collection)
+            {
+                count = collection.Count;
+                T[] buffer = ArrayPool<T>.Shared.Rent(count);
+
+                collection.CopyTo(buffer, 0);
+                AddSpan(buffer.AsSpan(0, count));
+
+                ArrayPool<T>.Shared.Return(buffer, true);
+                return count;
+            }
+
+            count = 0;
+            RedisValue value = new();
+            foreach(T item in items)
+            {
+                Serialize(item, ref value, out byte[] leased);
+
+                m_cache!.ListRightPush(m_key, value);
+
+                ArrayPool<byte>.Shared.Return(leased);
+                // At this point memory at value is dirty, but can still be used by serialize as it only writes value not reads.
+                count++;
+            }
+            return count;
+        }
+
+        public void AddSpan(Span<T> items)
+        {
+            Connect();
+
+            RedisValue value = new();
+
+            for(int i = 0; i < items.Length; i++)
+            {
+                Serialize(items[i], ref value, out byte[] leased);
+
+                m_cache!.ListRightPush(m_key, value);
+
+                ArrayPool<byte>.Shared.Return(leased);
+                // At this point memory at value is dirty, but can still be used by serialize as it only writes value not reads.
+            }
+        }
+
+        /// <inheritdoc />
+        public void CopyTo(T[] array, int arrayIndex)
+        {
+            Connect();
+
+            m_cache!.ListRange(m_key).CopyTo(array, arrayIndex);
         }
 
         /// <inheritdoc />
         void ICollection.CopyTo(Array array, int index)
         {
             CopyTo((T[])array, index);
-        }
-
-        /// <inheritdoc cref="IList{T}.Count" />
-        public int Count => (int)GetRedisDatabase().ListLength(m_key);
-
-        /// <inheritdoc />
-        bool ICollection<T>.IsReadOnly => false;
-
-        /// <inheritdoc />
-        public bool Remove(T item)
-        {
-            long removedAt = GetRedisDatabase().ListRemove(m_key, Serialize(item, out byte[] leased));
-            ArrayPool<byte>.Shared.Return(leased);
-            return removedAt > 0;
         }
 
         /// <inheritdoc cref="IEnumerable{T}.GetEnumerator" />
@@ -150,10 +349,15 @@ namespace RedisProtobufCollections
         /// <inheritdoc />
         public virtual void Dispose()
         {
-            if (m_connection == null)
+            if (_options == null)
                 return;
-            m_connection.Dispose();
-            m_connection = null;
+
+            _connectionLock.Dispose();
+            _connection!.Dispose();
+
+            _options = null;
+            _connection = null;
+            m_cache = null;
         }
 
         public struct Enumerator : IEnumerator<T>
@@ -175,7 +379,7 @@ namespace RedisProtobufCollections
 
             public void Dispose()
             {
-                if (ReferenceEquals(null, _list))
+                if (_list == null)
                     return;
                 _list = null;
             }

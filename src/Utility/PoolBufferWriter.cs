@@ -13,7 +13,7 @@ namespace RedisProtobufCollections.Utility
      * Source: https://gist.github.com/ProphetLamb/9a43cbf9625b53e7ee22201030108908
      */
     /// <summary>
-    ///     <see cref="IBufferWriter{T}"/> using a pool-array from the <see cref="ArrayPool{T}.Shared"/>.
+    ///     Reuseable <see cref="IBufferWriter{T}"/> using a pool-array from the <see cref="ArrayPool{T}.Shared"/>.
     /// </summary>
     /// <typeparam name="T">The type of the items.</typeparam>
     /// <remarks>
@@ -47,6 +47,7 @@ namespace RedisProtobufCollections.Utility
         IDisposable
     {
         private T[]? _buffer;
+        private readonly int _minimumCapacity;
         private int _index;
 
         public PoolBufferWriter(int initialCapacity)
@@ -55,6 +56,7 @@ namespace RedisProtobufCollections.Utility
                 ThrowHelper.ThrowArgumentOutOfRangeException_LessEqualZero(ExceptionArgument.initialCapacity);
 
             _buffer = ArrayPool<T>.Shared.Rent(initialCapacity);
+            _minimumCapacity = initialCapacity;
             _index = 0;
         }
 
@@ -308,7 +310,7 @@ namespace RedisProtobufCollections.Utility
             else
             {
                 ThrowHelper.ThrowIfObjectDisposed(_index == -1);
-                _buffer = ArrayPool<T>.Shared.Rent(additionalCapacityBeyondPos);
+                _buffer = ArrayPool<T>.Shared.Rent(Math.Max(additionalCapacityBeyondPos, _minimumCapacity));
             }
         }
 

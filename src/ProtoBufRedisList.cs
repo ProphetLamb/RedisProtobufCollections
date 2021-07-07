@@ -1,9 +1,12 @@
 using System;
+using System.Threading;
+using Microsoft.Extensions.Options;
 
 using ProtoBuf;
 using ProtoBuf.Meta;
 
 using RedisProtobufCollections.Exceptions;
+using RedisProtobufCollections.Extensions;
 using RedisProtobufCollections.Utility;
 
 using StackExchange.Redis;
@@ -18,26 +21,18 @@ namespace RedisProtobufCollections
     ///     Handles serialization via read-only-memory & arrays. Inefficient for small data structures. Use only if you cant serialize as a primitive struct such as int, long, float & double.
     /// </remarks>
     public class ProtoBufRedisList<T> : RedisList<T>
+        where T : new()
     {
-        private PoolBufferWriter<byte>? _writer = new(256);
+        private ThreadLocal<PoolBufferWriter<byte>?>? _writer = new();
 
-        public ProtoBufRedisList(string key, ConnectionMultiplexer connection) : base(key, connection)
-        {
-            // Throws if it isn't a ProtoContract type.
-            _ = RuntimeTypeModel.Default.Add(typeof(T), false);
-        }
-
-        /// <inheritdoc />
-        protected override IDatabase GetRedisDatabase()
-        {
-            ThrowHelper.ThrowIfObjectDisposed(m_connection == null);
-            return m_connection!.GetDatabase();
-        }
+        public ProtoBufRedisList(IOptions<RedisListOptions> optionsAccessor) : base(optionsAccessor)
+        { }
 
         /*
          * Serialize byte[] or ReadOnlyMemory<byte>, and deserialize as ReadOnlyMemory<byte>.
          * This way we store as StorageType.Raw and may return the heap allocated memory, if any; otherwise we get a heap allocation.
          */
+
         /// <inheritdoc />
         protected override T Deserialize(in RedisValue serialized)
         {
@@ -45,25 +40,22 @@ namespace RedisProtobufCollections
         }
 
         /// <inheritdoc />
-        protected override RedisValue Serialize(in T obj)
+        protected override void Deserialize(in RedisValue serialized, ref T value)
         {
-            ThrowHelper.ThrowIfObjectDisposed(_writer == null);
-
-            // Serialize the object
-            Serializer.Serialize(_writer, obj);
-
-            // Sadly we have to copy the memory of the writer to the wild-wild heap, because we cant just keep jonking memory from the pool.
-            return _writer.ToArray();
+            value = Serializer.Deserialize<T>(serialized);
         }
+
         /// <inheritdoc />
-        protected override RedisValue Serialize(in T obj, out byte[] leased)
+        protected override void Serialize(in T obj, ref RedisValue value, out byte[] leased)
         {
-            ThrowHelper.ThrowIfObjectDisposed(_writer == null);
+            PoolBufferWriter<byte>? writer = _writer!.Value;
+            if (writer == null)
+                _writer.Value = writer = new(256);
 
             // Serialize the object
-            Serializer.Serialize(_writer, obj);
-            
-            return _writer.ToMemory(out leased);
+            Serializer.Serialize(writer, obj);
+
+            value = writer.ToMemory(out leased);
         }
 
         /// <inheritdoc />
@@ -74,7 +66,13 @@ namespace RedisProtobufCollections
 
             base.Dispose();
 
+            foreach(PoolBufferWriter<byte>? writer in _writer.Values)
+            {
+                writer?.Dispose();
+            }
+
             _writer.Dispose();
+
             _writer = null;
         }
     }
