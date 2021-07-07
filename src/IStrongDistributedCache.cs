@@ -5,11 +5,11 @@ using Microsoft.Extensions.Caching.Distributed;
 
 namespace RedisProtobufCollections
 {
-    public interface IDistributedCache<T>
+    public interface IStrongDistributedCache
     {
-        T Get(string key);
+        T Get<T>(string key);
 
-        Task<T> GetAsync(string key, CancellationToken cancellationToken = default);
+        Task<T> GetAsync<T>(string key, CancellationToken cancellationToken = default);
 
         void Refresh(string key);
 
@@ -19,8 +19,8 @@ namespace RedisProtobufCollections
 
         Task RemoveAsync(string key, CancellationToken cancellationToken = default);
 
-        void Set(string key, T value, DistributedCacheEntryOptions options);
+        void Set<T>(string key, T value, DistributedCacheEntryOptions options);
 
-        Task SetAsync(string key, T value, DistributedCacheEntryOptions options, CancellationToken cancellationToken = default);
+        Task SetAsync<T>(string key, T value, DistributedCacheEntryOptions options, CancellationToken cancellationToken = default);
     }
 }
