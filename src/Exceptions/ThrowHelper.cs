@@ -41,6 +41,12 @@ namespace RedisProtobufCollections.Exceptions
             throw new ArgumentException(message, GetArgumentName(argument));
         }
 
+        [DoesNotReturn]
+        internal static void ThrowArgumentNullException(ExceptionArgument argument)
+        {
+            throw new ArgumentNullException(GetArgumentName(argument));
+        }
+
         internal static void ThrowIfObjectDisposed([DoesNotReturnIf(true)] bool disposed)
         {
             if (disposed)
