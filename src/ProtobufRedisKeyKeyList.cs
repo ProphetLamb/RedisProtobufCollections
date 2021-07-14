@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using HeaplessUtility.Pool;
 using Microsoft.Extensions.Options;
 
 using ProtoBuf;
@@ -11,18 +12,16 @@ using StackExchange.Redis;
 namespace RedisProtobufCollections
 {
     /// <summary>
-    ///     A <see cref="RedisList{T}"/> using ProtoBuffer for serialization & deserialization.
+    ///     A <see cref="RedisKeyList{T}"/> using ProtoBuffer for serialization & deserialization.
     /// </summary>
     /// <typeparam name="T">The ProtoContract type.</typeparam>
     /// <remarks>
     ///     Handles serialization via read-only-memory & arrays. Inefficient for small data structures. Use only if you cant serialize as a primitive struct such as int, long, float & double.
     /// </remarks>
-    public class ProtoBufRedisList<T> : RedisList<T>
+    public class ProtobufRedisKeyKeyList<T> : RedisKeyList<T>
         where T : new()
     {
-        private ThreadLocal<PoolBufferWriter<byte>?>? _writer = new();
-
-        public ProtoBufRedisList(IOptions<RedisListOptions> optionsAccessor) : base(optionsAccessor)
+        public ProtobufRedisKeyKeyList(IOptions<RedisListOptions> optionsAccessor) : base(optionsAccessor)
         { }
 
         /*
@@ -45,32 +44,12 @@ namespace RedisProtobufCollections
         /// <inheritdoc />
         protected override void Serialize(in T obj, ref RedisValue value, out byte[] leased)
         {
-            PoolBufferWriter<byte>? writer = _writer!.Value;
-            if (writer == null)
-                _writer.Value = writer = new(256);
-
+            BufferWriter<byte> writer = BufferWriterCache<byte>.Acquire(256);
             // Serialize the object
             Serializer.Serialize(writer, obj);
-
             value = writer.ToMemory(out leased);
-        }
-
-        /// <inheritdoc />
-        public override void Dispose()
-        {
-            if (_writer == null)
-                return;
-
-            base.Dispose();
-
-            foreach(PoolBufferWriter<byte>? writer in _writer.Values)
-            {
-                writer?.Dispose();
-            }
-
-            _writer.Dispose();
-
-            _writer = null;
+            
+            BufferWriterCache<byte>.Release(writer);
         }
     }
 }

@@ -2,8 +2,8 @@ using System;
 using System.Buffers;
 using System.Collections;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Threading;
-
 using Microsoft.Extensions.Options;
 
 using StackExchange.Redis;
@@ -17,8 +17,8 @@ namespace RedisProtobufCollections
     ///     A <see cref="IList"/>-like representation of an entry of a <see cref="RedisCache"/>.
     /// </summary>
     /// <typeparam name="T">The type of items of the list.</typeparam>
-    public abstract class RedisList<T> :
-        IList<T>,
+    public abstract class RedisKeyList<T> :
+        ICollection<T>,
         ICollection,
         IReadOnlyList<T>,
         IDisposable
@@ -36,9 +36,13 @@ namespace RedisProtobufCollections
 
         private readonly string _instance;
 
-        protected RedisList(IOptions<RedisListOptions> optionsAccessor)
+        public RedisKeyList(RedisKey key, IOptions<RedisCacheOptions> optionsAccessor)
+            : this(new RedisListOptions { RedisListKey = key, CacheOptions = optionsAccessor.Value })
+        { }
+
+        protected RedisKeyList(IOptions<RedisListOptions> optionsAccessor)
         {
-            if (optionsAccessor?.Value?.CacheOptions == null)
+            if (optionsAccessor.Value?.CacheOptions == null)
                 ThrowHelper.ThrowArgumentException(ExceptionArgument.optionAccessor, "RedisListOptions are invalid, CacheOptions are null.");
 
             _options = optionsAccessor.Value;
@@ -74,19 +78,19 @@ namespace RedisProtobufCollections
         /// <inheritdoc cref="IList{T}.this" />
         public T this[int index]
         {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
             {
                 Connect();
 
                 return Deserialize(m_cache!.ListGetByIndex(m_key, index));
             }
-            set => Insert(index, value);
         }
 
         /// <summary>
         /// Assigns a value to <see cref="_connection"/>, <see cref="m_key"/>, <see cref="m_cache"/> when called the first time.
         /// </summary>
-        /// <exception cref="InvalidOpterationException">The object is disposed.</exception>
+        /// <exception cref="InvalidOperationException">The object is disposed.</exception>
         protected virtual void Connect()
         {
             ThrowHelper.ThrowIfObjectDisposed(_options == null);
@@ -361,26 +365,24 @@ namespace RedisProtobufCollections
 
         public struct Enumerator : IEnumerator<T>
         {
-            private RedisList<T>? _list;
+            private RedisKeyList<T>? _keyList;
             private readonly int _count;
             internal int Index;
 
-            public Enumerator(RedisList<T> list)
+            public Enumerator(RedisKeyList<T> keyList)
             {
-                _list = list;
-                _count = list.Count;
+                _keyList = keyList;
+                _count = keyList.Count;
                 Index = 0;
             }
 
-            public T Current => _list![Index-1];
+            public T Current => _keyList![Index-1];
 
-            object IEnumerator.Current => Current!;
+            object? IEnumerator.Current => Current;
 
             public void Dispose()
             {
-                if (_list == null)
-                    return;
-                _list = null;
+                _keyList = null;
             }
 
             public bool MoveNext()
