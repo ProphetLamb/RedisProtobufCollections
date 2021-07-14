@@ -29,11 +29,10 @@ namespace RedisProtobufCollections
         {
             byte[]? bytes = _cache.Get(key);
             if (bytes == null || bytes.Length == 0)
-                return default(T)!;
-            MemoryStream stream = new(bytes);
-            T result = Serializer.Deserialize<T>(stream);
-            stream.Dispose();
-            return result;
+            {
+                ThrowHelper.ThrowKeyNotFoundException(key);
+            }
+            return Serializer.Deserialize<T>(new ReadOnlySpan<byte>(bytes));
         }
 
         byte[] IDistributedCache.Get(string key) => _cache.Get(key);
