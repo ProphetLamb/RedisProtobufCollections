@@ -1,11 +1,8 @@
 using System;
-using System.Threading;
 using HeaplessUtility.Pool;
 using Microsoft.Extensions.Options;
 
 using ProtoBuf;
-
-using RedisProtobufCollections.Utility;
 
 using StackExchange.Redis;
 
