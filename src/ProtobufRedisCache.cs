@@ -1,13 +1,13 @@
 using System;
 using System.IO;
-using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using HeaplessUtility.Pool;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.StackExchangeRedis;
 using Microsoft.Extensions.Options;
 using ProtoBuf;
-using RedisProtobufCollections.Utility;
+using RedisProtobufCollections.Exceptions;
 
 namespace RedisProtobufCollections
 {
@@ -17,7 +17,6 @@ namespace RedisProtobufCollections
     public class ProtoBufRedisCache : IStrongDistributedCache, IDistributedCache, IDisposable
     {
         private readonly RedisCache _cache;
-        private readonly ThreadLocal<PoolBufferWriter<byte>?> _writer = new();
         private bool _disposed;
 
         public ProtoBufRedisCache(IOptions<RedisCacheOptions> optionsAccessor)
@@ -60,35 +59,28 @@ namespace RedisProtobufCollections
 
         public void Set<T>(string key, T value, DistributedCacheEntryOptions options)
         {
-            PoolBufferWriter<byte> writer = GetWriter();
+            BufferWriter<byte> writer = BufferWriterCache<byte>.Acquire(256);
+            
             Serializer.Serialize(writer, value);
             _cache.Set(key, writer.ToArray(), options);
+            
+            BufferWriterCache<byte>.Release(writer);
         }
 
-        void IDistributedCache.Set(string key, byte[] value, DistributedCacheEntryOptions options) =>
-            _cache.Set(key, value, options);
+        void IDistributedCache.Set(string key, byte[] value, DistributedCacheEntryOptions options) => _cache.Set(key, value, options);
 
         public async Task SetAsync<T>(string key, T value, DistributedCacheEntryOptions options, CancellationToken token = default)
         {
-            PoolBufferWriter<byte> writer = GetWriter();
+            BufferWriter<byte> writer = BufferWriterCache<byte>.Acquire(256);
+            
             Serializer.Serialize(writer, value);
             await _cache.SetAsync(key, writer.ToArray(), options).ConfigureAwait(false);
+            
+            BufferWriterCache<byte>.Release(writer);
         }
 
         Task IDistributedCache.SetAsync(string key, byte[] value, DistributedCacheEntryOptions options, CancellationToken token) =>
             _cache.SetAsync(key, value, options, token);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private PoolBufferWriter<byte> GetWriter()
-        {
-            PoolBufferWriter<byte>? writer = _writer.Value;
-            if (writer != null)
-            {
-                return writer;
-            }
-            _writer.Value = writer = new(256);
-            return writer;
-        }
 
         public void Dispose()
         {
@@ -96,12 +88,6 @@ namespace RedisProtobufCollections
                 return;
 
             _cache.Dispose();
-
-            foreach(PoolBufferWriter<byte>? writer in _writer.Values)
-            {
-                writer?.Dispose();
-            }
-            _writer.Dispose();
 
             _disposed = true;
         }
