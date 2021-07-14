@@ -78,9 +78,9 @@ namespace RedisProtobufCollections.Exceptions
         }
 
         [DoesNotReturn]
-        internal static void ThrowArgumentException_ArrayCapacityOverMax(ExceptionArgument argument, int reqiredCapacity)
+        internal static void ThrowArgumentException_ArrayCapacityOverMax(ExceptionArgument argument, int requiredCapacity)
         {
-            throw new ArgumentException($"The array is of insufficient capacity to contains {reqiredCapacity} elements.", GetArgumentName(argument));
+            throw new ArgumentException($"The array is of insufficient capacity to contains {requiredCapacity} elements.", GetArgumentName(argument));
         }
 
         [DoesNotReturn]
@@ -93,6 +93,24 @@ namespace RedisProtobufCollections.Exceptions
         public static void ThrowNotSupportedException()
         {
             throw new NotSupportedException();
+        }
+
+        [DoesNotReturn]
+        public static void ThrowKeyNotFoundException(object? key)
+        {
+            throw new KeyNotFoundException($"The collection does not contain an entry with the key \"{key}\".");
+        }
+
+        [DoesNotReturn]
+        public static void ThrowInvalidOperationException_PropertySetterInitOnly()
+        {
+            ThrowInvalidOperationException("The property cannot be changed once assigned.");
+        }
+
+        [DoesNotReturn]
+        public static void ThrowInvalidOperationException_PropertyGetterNotInitialized()
+        {
+            ThrowInvalidOperationException("The value of the property cannot be obtained before it is assigned.");
         }
     }
 
