@@ -27,6 +27,7 @@
     </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="HeaplessUtility" Version="0.2.1" />
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="6.0.0-preview.5.21301.17" />
     <PackageReference Include="protobuf-net" Version="3.0.101" />
     <PackageReference Include="StackExchange.Redis" Version="2.2.62" />
